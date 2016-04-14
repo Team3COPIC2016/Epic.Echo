@@ -29,6 +29,7 @@ var APP_ID = undefined; //replace with "amzn1.echo-sdk-ams.app.[your-unique-valu
 var AlexaSkill = require('./AlexaSkill');
 var http = require('http');
 var request = require('./request');
+var moment = require('./moment');
 /**
  * HelloWorld is a child of AlexaSkill.
  * To read more about inheritance in JavaScript, see the link below.
@@ -47,6 +48,7 @@ HelloWorld.prototype.eventHandlers.onSessionStarted = function (sessionStartedRe
     // session.attributes.state = 0;
     console.log("HelloWorld onSessionStarted requestId: " + sessionStartedRequest.requestId
         + ", sessionId: " + session.sessionId);
+    // session.attributes = {};
 };
 
 HelloWorld.prototype.eventHandlers.onLaunch = function (launchRequest, session, response) {
@@ -62,6 +64,10 @@ HelloWorld.prototype.eventHandlers.onSessionEnded = function (sessionEndedReques
 };
 
 //stages
+//1 needs name
+//2 needs description
+//3 needs start time
+//4 needs end time
 
 HelloWorld.prototype.intentHandlers = {
     // register custom intent handlers
@@ -73,19 +79,72 @@ HelloWorld.prototype.intentHandlers = {
     },
     "CreateTaskIntent": function(intent, session, response) {
         session.attributes.stage = 0;
+        // session.attributes.taskName = "hey";
+        // session.attributes.taskDesc = "a description";
+        // createTask(session, function() {
+        //     response.tell(getTaskShortDesc(session));                
+        // });
         createTaskHandler(intent, session, response);
+    },
+    "YesIntent": function(intent, session, response) {
+        if (session.attributes.stage == 3) {
+            //collect end time
+            response.ask("Please give a start time.");         
+        } else {
+            response.ask("You can't do that here");
+        }
+    },
+    "NoIntent": function(intent, session, response) {
+        if (session.attributes.stage == 3) {
+            //post
+            createTask(session, function() {
+                response.tell(getTaskShortDesc(session));                
+            });
+        } else {
+            response.ask("You can't do that here");
+        }
     },
     "AddEmployeeIntent": function(intent, session, response) {
         addEmployeeHandler(intent, session, response);
     },
-    "GetTaskNameIntent": function(intent, session, response) {
-        response.tell("Creating new task with name " + intent.slots.TaskTitle.value);
-        
-    },
     "GetDetailIntent": function(intent, session, response) {
-        if (session.attributes.stage === 1) {
-            response.tell("Creating new detail with name " + intent.slots.Detail.value);
+        switch (session.attributes.stage) {
+            case 1:
+                var name = intent.slots.Detail.value;
+                session.attributes.taskName = name;
+                session.attributes.stage = 2;
+                response.ask("Please give a short description.");
+                break;
+            case 2:
+                var desc = intent.slots.Detail.value;
+                session.attributes.taskDesc = desc;
+                session.attributes.stage = 3;
+                response.ask("Please give a start time.");
+                break;
+            default:
+                response.tell("Please say something correct.");
         }
+    },
+    "SetTimeIntent": function(intent, session, response) {
+        switch (session.attributes.stage) {
+            case 3:
+                var start = intent.slots.Time.value;
+                session.attributes.startTime = start;
+                session.attributes.stage = 4;
+                response.ask("Please give an end time.");
+                break;
+            case 4:
+                var end = intent.slots.Time.value;
+                session.attributes.endTime = end;
+                session.attributes.stage = 5;
+
+                createTask(session, function() {
+                    response.tell(getTaskShortDesc(session));
+                });
+                break;
+            default:
+                response.tell("Please say something correct.");
+        }   
     },
     "StatusIntent": function(intent, session, response) {
         request({
@@ -95,7 +154,6 @@ HelloWorld.prototype.intentHandlers = {
         }, function(error, res, body) {
             console.log(body);
             console.log(JSON.stringify(res));
-
             var data = JSON.parse(body);
             est = data["estimated_time"];
             act = data["actual_time"];
@@ -106,7 +164,7 @@ HelloWorld.prototype.intentHandlers = {
         var lastName = intent.slots.LastName.value;
         var firstName = intent.slots.FirstName.value;
         request({
-            uri: "http://epicapi-dev.us-west-2.elasticbeanstalk.com/api/Employees?lastName=" + lastName "&firstName" + firstName,
+            uri: "http://epicapi-dev.us-west-2.elasticbeanstalk.com/api/Employees?lastName=" + lastName + "&firstName" + firstName,
             method: "GET",
             timeout: 10000,
         }, function(error, res, body) {
@@ -120,6 +178,46 @@ HelloWorld.prototype.intentHandlers = {
         });
     }
 };
+
+function createTask(session, callback) {
+    var dataBody = {
+        "Title": session.attributes.taskName,
+        "Description": session.attributes.taskDesc
+    };
+
+    if (session.attributes.startTime) {
+        console.log(typeof session.attributes.startTime);
+        console.log(JSON.stringify(session.attributes.startTime));
+        console.log(typeof session.attributes.endTime);
+        console.log(JSON.stringify(session.attributes.endTime));
+        console.log(moment(JSON.stringify(session.attributes.startTime), moment.ISO_8601).toISOString());
+        console.log(moment(JSON.stringify(session.attributes.endTime), moment.ISO_8601).toISOString());
+        console.log(moment(JSON.stringify(session.attributes.startTime)).toISOString());
+        console.log(moment(JSON.stringify(session.attributes.endTime)).toISOString());
+
+        dataBody.StartDate = moment(JSON.stringify(session.attributes.startTime), moment.ISO_8601).toISOString();
+        dataBody.EndDate = moment(JSON.stringify(session.attributes.endTime), moment.ISO_8601).toISOString();
+    }
+
+    request({
+        url: "http://epicapi-dev.us-west-2.elasticbeanstalk.com/api/Work?user=c18977cd-e9e2-4bcb-9602-953816bbe9f5",
+        method: 'POST',
+        json: dataBody
+        }, function(err, httpResponse, body) {
+            console.log(JSON.stringify(err));
+            console.log(JSON.stringify(httpResponse));
+            console.log(JSON.stringify(body));
+            callback();
+    });
+
+}
+
+function getTaskShortDesc(session) {
+    var str = "Creating new task";
+str += " called " + session.attributes.taskName;
+str += " starting " + session.attributes.startTime + ".";
+    return str;
+}
 
 function hToStr(decHours) {
     var str = "";
@@ -144,9 +242,8 @@ function createTaskHandler(intent, session, response) {
     if (name && name.value) {
         response.tell("Making new task called " + name.value);        
     } else {
-        response.ask("What do you want to call it?");
         session.attributes.stage = 1;
-        console.log(JSON.stringify(session.attributes));
+        response.ask("What do you want to call it?");
     }
 }
 
