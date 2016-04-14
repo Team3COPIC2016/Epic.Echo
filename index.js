@@ -44,9 +44,9 @@ HelloWorld.prototype = Object.create(AlexaSkill.prototype);
 HelloWorld.prototype.constructor = HelloWorld;
 
 HelloWorld.prototype.eventHandlers.onSessionStarted = function (sessionStartedRequest, session) {
+    // session.attributes.state = 0;
     console.log("HelloWorld onSessionStarted requestId: " + sessionStartedRequest.requestId
         + ", sessionId: " + session.sessionId);
-    // any initialization logic goes here
 };
 
 HelloWorld.prototype.eventHandlers.onLaunch = function (launchRequest, session, response) {
@@ -59,61 +59,122 @@ HelloWorld.prototype.eventHandlers.onLaunch = function (launchRequest, session, 
 HelloWorld.prototype.eventHandlers.onSessionEnded = function (sessionEndedRequest, session) {
     console.log("HelloWorld onSessionEnded requestId: " + sessionEndedRequest.requestId
         + ", sessionId: " + session.sessionId);
-    // any cleanup logic goes here
 };
 
+//stages
 
 HelloWorld.prototype.intentHandlers = {
     // register custom intent handlers
     "HelloWorldIntent": function (intent, session, response) {
         response.tellWithCard("Hello World!", "Greeter", "Hello World!");
     },
-    // "MakeRequestIntent": function(intent, session, response) {
-    //     // response.tell("making web request");
-    //     var dest = intent.slots.WebSite;
-
-    //     // response.ask("Getting data");
-    //     // response.tell("Going to " + dest.value);    
-    //     http.get("http://wikipedia.com", function(res) {
-    //         var responseData = "";
-    //         res.on('data', function (data) {
-    //             responseData += data;
-    //         });
-
-
-    //         res.on('end', function () {
-    //             // response.tell("got data");
-    //             response.tell("got data " + responseData);
-    //         });
-    //     }).on('error', function (e) {
-    //         response.tell("http error");
-    //         console.log("Communications error: " + e.message);
-    //     });
-    // },
     "AMAZON.HelpIntent": function (intent, session, response) {
         response.ask("You can say hello to me!", "You can say hello to me!");
     },
-    "MakeTaskIntent": function(intent, session, response) {
-        makeTaskHandler(intent, session, response);
+    "CreateTaskIntent": function(intent, session, response) {
+        session.attributes.stage = 0;
+        createTaskHandler(intent, session, response);
     },
     "AddEmployeeIntent": function(intent, session, response) {
         addEmployeeHandler(intent, session, response);
+    },
+    "GetTaskNameIntent": function(intent, session, response) {
+        response.tell("Creating new task with name " + intent.slots.TaskTitle.value);
+        
+    },
+    "GetDetailIntent": function(intent, session, response) {
+        if (session.attributes.stage === 1) {
+            response.tell("Creating new detail with name " + intent.slots.Detail.value);
+        }
+    },
+    "StatusIntent": function(intent, session, response) {
+        request({
+            uri: "http://mockbin.org/bin/301a631f-afd1-471b-bfba-8dc77b9affd3",
+            method: "GET",
+            timeout: 10000,
+        }, function(error, res, body) {
+            console.log(body);
+            console.log(JSON.stringify(res));
+
+            var data = JSON.parse(body);
+            est = data["estimated_time"];
+            act = data["actual_time"];
+            response.tell("So far " + hToStr(act) + " have been completed.  An estimated " + hToStr(est - act) + " remain for a total of time worked of " + hToStr(est) + ".");
+        });
+    },
+    "EmployeeDetailIntent": function(intent, session, response) {
+        var lastName = intent.slots.LastName.value;
+        var firstName = intent.slots.FirstName.value;
+        request({
+            uri: "http://epicapi-dev.us-west-2.elasticbeanstalk.com/api/Employees?lastName=" + lastName "&firstName" + firstName,
+            method: "GET",
+            timeout: 10000,
+        }, function(error, res, body) {
+            console.log(body);
+            console.log(JSON.stringify(res));
+
+            var data = JSON.parse(body);
+            var employee = data[0];
+
+            response.tell(data["FirstName"] + " " + data["LastName"] + " works in " + data["Department"] + " as a " + data["JobTitle"] + ".");
+        });
     }
 };
+
+function hToStr(decHours) {
+    var str = "";
+    var hours = Math.floor(decHours);
+    var minutes = (decHours - hours) * 60
+    minutes = Math.floor(minutes);
+
+    if (hours > 0) {
+        str += hours + " hours";
+    }
+
+    if (minutes > 0) {
+        str += ((hours > 0) ? " " : "") + minutes + " minutes";
+    }
+
+    return str;
+}
+
+function createTaskHandler(intent, session, response) {
+    var name = intent.slots.TaskTitle;
+
+    if (name && name.value) {
+        response.tell("Making new task called " + name.value);        
+    } else {
+        response.ask("What do you want to call it?");
+        session.attributes.stage = 1;
+        console.log(JSON.stringify(session.attributes));
+    }
+}
+
 function addEmployeeHandler(intent, session, response) {
-    // request.post("http://requestb.in/1em85741").form({"hey":"hyea"});
     var first = intent.slots.FirstName.value;
     var last = intent.slots.LastName.value;
 
-    request.post({url:'http://service.com/upload', form: {key:'value'}},
-        function(err, httpResponse, body){
-            response.tell("hey");
-        });
-}
+    var dataBody = {
+        "first": first,
+        "last": last
+    }
 
-function makeTaskHandler(intent, session, response) {
-    var name = intent.slots.TaskName.value;
-    response.tell("Making new task called " + name);
+    request({
+            uri: "http://epicapi-dev.us-west-2.elasticbeanstalk.com/api/employees",
+            method: "GET",
+            timeout: 10000,
+        }, function(error, res, body) {
+            console.log(body);
+            console.log(JSON.stringify(res));
+            response.tell("got " + body);
+        });
+
+    // request.post({
+    //     url:'http://requestb.in/1em85741',
+    //     form: JSON.stringify(dataBody)
+    //     }, function(err, httpResponse, body){
+    //         response.tell("ok i did it");
+    //     });
 }
 
 
